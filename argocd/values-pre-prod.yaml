@@ -1,0 +1,8 @@
+image:
+  environment: 'pre-prod'
+  pullPolicy: Always
+tenant:
+  digital: pre-prod
+syncPolicy:
+  enabled: true
+

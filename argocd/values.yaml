@@ -1,0 +1,7 @@
+source:
+  repoURL: 'azure-container-registry.azurecr.io'
+
+valuesRepo:
+  repoURL: 'https://github.com/org/test-repo.git'
+  targetRevision: main
+

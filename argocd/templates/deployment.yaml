@@ -1,0 +1,45 @@
+{{- $env := $.Values.image.environment }}
+{{- $fileName := printf "package-%s.json" $env }}
+{{- $data := (.Files.Get $fileName | fromJson) }}
+{{- $services := $data.services }}
+{{- $digitalTenant := .Values.tenant.digital }}
+
+{{- range $serviceName, $version := $services }}
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $digitalTenant }}-{{ $serviceName }}
+  namespace: argocd
+spec:
+  project: fabric
+
+  sources:
+    - repoURL: {{ $.Values.source.repoURL }}
+      chart: {{ $serviceName }}
+      targetRevision: "{{ $version }}"
+      helm:
+        valueFiles:
+          - $values/Application/{{ $serviceName }}/helm-chart/values.yaml
+          - $values/common-deployment/{{ $serviceName }}/helm-chart/values-{{ $.Values.image.environment }}.yaml
+
+    - repoURL: {{ $.Values.valuesRepo.repoURL }}
+      targetRevision: {{ $.Values.valuesRepo.targetRevision }}
+      ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $digitalTenant }}-pre-prod-frontend
+
+  syncPolicy:
+{{- if $.Values.syncPolicy.enabled }}
+    automated:
+      prune: true
+      selfHeal: true
+{{- end }}
+    syncOptions:
+      - CreateNamespace=true
+
+  revisionHistoryLimit: 2
+---
+{{- end }}
