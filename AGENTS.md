@@ -1,6 +1,6 @@
 # Agent Instructions & Repository Rules
 
-This file defines the operational guidelines, architectural rules, and validation standards for AI agents working in this GitOps repository.
+This file defines the operational guidelines, architectural rules, and validation standards for automated agents and developers working in this GitOps repository.
 
 > For full architectural details, deployment workflows, and runbooks, refer to [agent.md](./agent.md).
 

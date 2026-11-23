@@ -1,6 +1,6 @@
-# AI Agent Guide for GitOps-Development
+# GitOps-Development Architecture & Operations Guide
 
-Welcome to the **Gitops-development** repository. This document establishes the operational rules, architectural patterns, workflows, and automated skills available to AI agents and developers operating in this repository.
+Welcome to the **Gitops-development** repository. This document establishes the operational rules, architectural patterns, workflows, and automated skills available to developers and automated agents operating in this repository.
 
 ---
 
@@ -25,7 +25,7 @@ gitops/
 │       └── deployment.yaml      # Dynamic generator for all service Applications
 ├── common-deployment/           # Shared environment-level overrides
 │   └── values-pre-prod.yaml     # Shared baseline values across services (e.g. autoscaling)
-└── .agents/                     # AI Agent customization system
+└── .agents/                     # Operational skills and runbooks
     └── skills/                  # Domain-specific procedural skills & runbooks
         ├── argocd-service-management/
         ├── helm-management/
@@ -58,7 +58,7 @@ This repository utilizes the **ArgoCD App-of-Apps pattern** combined with **Mult
 
 ---
 
-## 3. Operational Rules for AI Agents
+## 3. Operational Rules & Standards
 
 Whenever you perform work in this repository, you **MUST** adhere to the following rules:
 
