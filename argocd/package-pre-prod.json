@@ -1,5 +1,5 @@
 {
-  "services": {
-    "hello-world": "0.1.0"
-  }
+    "services": {
+        "hello-world": "0.1.0"
+    }
 }
