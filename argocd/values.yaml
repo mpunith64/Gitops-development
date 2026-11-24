@@ -5,3 +5,13 @@ valuesRepo:
   repoURL: 'https://github.com/org/test-repo.git'
   targetRevision: main
 
+image:
+  environment: 'pre-prod'
+  pullPolicy: IfNotPresent
+
+tenant:
+  digital: pre-prod
+
+syncPolicy:
+  enabled: true
+
