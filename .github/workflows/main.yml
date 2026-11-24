@@ -1,0 +1,161 @@
+name: CI CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - feat/**
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'SemVer bump type (patch, minor, major)'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  detect-affected:
+    name: Detect Changed Applications
+    runs-on: ubuntu-latest
+    outputs:
+      affected_apps: ${{ steps.set-affected.outputs.affected_apps }}
+      has_affected: ${{ steps.set-affected.outputs.has_affected }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Nx
+        run: npm --no-audit --no-fund install
+
+      - name: Derive Base and Head SHAs
+        uses: nrwl/nx-set-shas@v4
+
+      - name: Detect Affected Projects
+        id: set-affected
+        run: |
+          echo "Running nx show projects --affected..."
+          AFFECTED_APPS=$(npx nx show projects --affected --json 2>/dev/null || echo "[]")
+          echo "Affected projects: $AFFECTED_APPS"
+          
+          # If output is empty or not JSON array, ensure fallback
+          if [ -z "$AFFECTED_APPS" ] || [ "$AFFECTED_APPS" = "[]" ]; then
+            echo "affected_apps=[]" >> "$GITHUB_OUTPUT"
+            echo "has_affected=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "affected_apps=$AFFECTED_APPS" >> "$GITHUB_OUTPUT"
+            echo "has_affected=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  bump-version:
+    name: Bump Versions
+    needs: detect-affected
+    if: needs.detect-affected.outputs.has_affected == 'true'
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect-affected.outputs.affected_apps) }}
+      fail-fast: false
+    uses: ./.github/workflows/reusable-bump-version.yml
+    with:
+      app_name: ${{ matrix.app }}
+      bump_type: ${{ inputs.bump_type || 'patch' }}
+
+  build-and-push-docker:
+    name: Build & Push Docker
+    needs: [detect-affected, bump-version]
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect-affected.outputs.affected_apps) }}
+      fail-fast: false
+    uses: ./.github/workflows/reusable-docker-build-push.yml
+    with:
+      app_name: ${{ matrix.app }}
+      version: ${{ needs.bump-version.outputs[format('{0}_version', matrix.app)] || '0.1.1' }}
+      acr_registry: 'azure-container-registry.azurecr.io'
+
+  package-and-push-helm:
+    name: Package & Push Helm
+    needs: [detect-affected, bump-version, build-and-push-docker]
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect-affected.outputs.affected_apps) }}
+      fail-fast: false
+    uses: ./.github/workflows/reusable-helm-package-push.yml
+    with:
+      app_name: ${{ matrix.app }}
+      version: ${{ needs.bump-version.outputs[format('{0}_version', matrix.app)] || '0.1.1' }}
+      acr_registry: 'azure-container-registry.azurecr.io'
+
+  commit-bumped-versions:
+    name: Commit & Push Version Updates to GitHub
+    needs: [detect-affected, bump-version, package-and-push-helm]
+    runs-on: ubuntu-latest
+    if: always() && github.event_name != 'pull_request' && needs.detect-affected.outputs.has_affected == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Download all version bump artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: version-artifacts
+
+      - name: Apply Bumped Versions to Git Tree
+        run: |
+          echo "Applying version updates from artifacts..."
+          for artifact_file in $(find version-artifacts -name "bump-info-*.json"); do
+            echo "Processing $artifact_file..."
+            APP=$(jq -r '.app_name' "$artifact_file")
+            NEW_VER=$(jq -r '.new_version' "$artifact_file")
+            
+            # 1. Update Chart.yaml version & appVersion in helm-chart/
+            CHART_YAML="Application/$APP/helm-chart/Chart.yaml"
+            if [ -f "$CHART_YAML" ]; then
+              sed -i "s/^version:.*/version: $NEW_VER/" "$CHART_YAML"
+              sed -i "s/^appVersion:.*/appVersion: \"$NEW_VER\"/" "$CHART_YAML"
+              echo "Updated $CHART_YAML to version $NEW_VER"
+            fi
+
+            # 2. Update argocd package catalogs
+            for PKG in argocd/package-*.json; do
+              if [ -f "$PKG" ]; then
+                tmp=$(mktemp)
+                jq --arg app "$APP" --arg ver "$NEW_VER" \
+                  'if .services[$app] then .services[$app] = $ver else . end' "$PKG" > "$tmp" && mv "$tmp" "$PKG"
+                echo "Updated $PKG for $APP -> $NEW_VER"
+              fi
+            done
+          done
+
+      - name: Commit and Push Bumped Versions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Application/ argocd/
+          if git diff --staged --quiet; then
+            echo "No version changes to commit."
+          else
+            git commit -m "chore(release): bump affected application versions [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+            echo "Successfully pushed bumped versions back to GitHub."
+          fi

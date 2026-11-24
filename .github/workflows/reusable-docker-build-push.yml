@@ -1,0 +1,59 @@
+name: Reusable Docker Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        required: true
+        type: string
+        description: 'Application name'
+      version:
+        required: true
+        type: string
+        description: 'Container image tag / version'
+      acr_registry:
+        required: false
+        type: string
+        default: 'azure-container-registry.azurecr.io'
+        description: 'ACR login server'
+
+jobs:
+  docker-build-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          APP="${{ inputs.app_name }}"
+          VERSION="${{ inputs.version }}"
+          REGISTRY="${{ inputs.acr_registry }}"
+          IMAGE_TAG="$REGISTRY/$APP:$VERSION"
+
+          echo "=========================================="
+          echo "Building Docker image: $IMAGE_TAG"
+          echo "=========================================="
+
+          DOCKERFILE="Application/$APP/Dockerfile"
+          if [ -f "$DOCKERFILE" ]; then
+            echo "[DOCKER BUILD] docker build -t $IMAGE_TAG -f $DOCKERFILE Application/$APP"
+          else
+            echo "[INFO] No custom Dockerfile in Application/$APP, building from Application/$APP/src context"
+            echo "[DOCKER BUILD] docker build -t $IMAGE_TAG Application/$APP"
+          fi
+
+      - name: Push Docker Image to ACR (Echo Mode)
+        run: |
+          APP="${{ inputs.app_name }}"
+          VERSION="${{ inputs.version }}"
+          REGISTRY="${{ inputs.acr_registry }}"
+          IMAGE_TAG="$REGISTRY/$APP:$VERSION"
+
+          echo "=========================================="
+          echo "Pushing Docker image to ACR"
+          echo "=========================================="
+          echo "[ECHO COMMAND] docker push $IMAGE_TAG"
+          echo "[ECHO COMMAND] docker push $REGISTRY/$APP:latest"
+          echo "Docker push simulation completed successfully for $IMAGE_TAG"

@@ -1,0 +1,60 @@
+name: Reusable Helm Package & Push
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        required: true
+        type: string
+        description: 'Application / Chart name'
+      version:
+        required: true
+        type: string
+        description: 'Chart version to package'
+      acr_registry:
+        required: false
+        type: string
+        default: 'azure-container-registry.azurecr.io'
+        description: 'ACR OCI registry'
+
+jobs:
+  helm-package-push:
+    name: Package & Push Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint Helm Chart
+        run: |
+          APP="${{ inputs.app_name }}"
+          CHART_PATH="Application/$APP/helm-chart"
+          echo "Linting Helm chart at $CHART_PATH..."
+          helm lint "$CHART_PATH"
+
+      - name: Package Helm Chart
+        run: |
+          APP="${{ inputs.app_name }}"
+          VERSION="${{ inputs.version }}"
+          CHART_PATH="Application/$APP/helm-chart"
+          mkdir -p packaged-charts
+
+          echo "Packaging chart $APP with version $VERSION..."
+          helm package "$CHART_PATH" --version "$VERSION" --app-version "$VERSION" -d packaged-charts/
+          ls -l packaged-charts/
+
+      - name: Push Helm Chart to ACR (Echo Mode)
+        run: |
+          APP="${{ inputs.app_name }}"
+          VERSION="${{ inputs.version }}"
+          REGISTRY="${{ inputs.acr_registry }}"
+          CHART_FILE="packaged-charts/$APP-$VERSION.tgz"
+
+          echo "=========================================="
+          echo "Pushing Helm Chart to ACR OCI Registry"
+          echo "=========================================="
+          echo "[ECHO COMMAND] helm push $CHART_FILE oci://$REGISTRY/helm"
+          echo "Helm push simulation completed successfully for oci://$REGISTRY/helm/$APP:$VERSION"
