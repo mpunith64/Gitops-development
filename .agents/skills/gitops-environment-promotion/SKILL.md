@@ -22,7 +22,7 @@ In this repository, promotion follows declarative GitOps principles:
 ### Phase 1: Pre-Promotion Assessment
 
 1. **Identify the Service & Target Version**:
-   - Determine which service is being promoted (e.g., `website`) and the new semantic version (e.g., `0.2.0`).
+   - Determine which service is being promoted (e.g., `hello-world`) and the new semantic version (e.g., `0.2.0`).
 2. **Identify the Target Environment**:
    - Confirm target environment file: `argocd/package-<env>.json` (e.g., `package-pre-prod.json`).
 3. **Review Config Changes**:
@@ -35,13 +35,13 @@ In this repository, promotion follows declarative GitOps principles:
    ```json
    {
      "services": {
-       "website": "0.2.0"
+       "hello-world": "0.2.0"
      }
    }
    ```
    Or use the automated script:
    ```powershell
-   pwsh -File .agents/skills/gitops-environment-promotion/scripts/update-service-version.ps1 -Environment pre-prod -Service website -Version 0.2.0
+   pwsh -File .agents/skills/gitops-environment-promotion/scripts/update-service-version.ps1 -Environment pre-prod -Service hello-world -Version 0.2.0
    ```
 
 2. **Update Environment-Specific Values (if applicable)**:

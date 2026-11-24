@@ -30,7 +30,7 @@ Get-ChildItem -Path "argocd" -Filter "package-*.json" | ForEach-Object {
 ### 2. Lint All Helm Charts
 ```powershell
 helm lint argocd
-helm lint Application/website
+helm lint Application/hello-world/helm-chart
 ```
 
 ### 3. Dry-Run Render ArgoCD Manifests
@@ -40,7 +40,7 @@ helm template argocd -f argocd/values.yaml -f argocd/values-pre-prod.yaml
 
 ### 4. Dry-Run Render Application Charts with Common Values
 ```powershell
-helm template Application/website -f Application/website/values.yaml -f common-deployment/values-pre-prod.yaml
+helm template Application/hello-world/helm-chart -f Application/hello-world/helm-chart/values.yaml -f common-deployment/values-pre-prod.yaml
 ```
 
 ## Automated Validation Helper

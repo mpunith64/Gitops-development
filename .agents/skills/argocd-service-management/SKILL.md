@@ -36,7 +36,7 @@ When adding a new microservice (e.g. `order-service` at version `0.1.0` to `pre-
      ```json
      {
        "services": {
-         "website": "0.1.0",
+         "hello-world": "0.1.0",
          "order-service": "0.1.0"
        }
      }
@@ -60,7 +60,7 @@ When releasing a new version of an existing service:
 1. Identify the target environment (e.g., `pre-prod`).
 2. Update the version string in `argocd/package-<env>.json`:
    ```json
-   "website": "0.2.0"
+   "hello-world": "0.2.0"
    ```
 3. If new configuration parameters are required, update:
    - `Application/<service-name>/values.yaml`
