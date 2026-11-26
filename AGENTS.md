@@ -63,8 +63,9 @@ gitops/
 │   ├── values-pre-prod.yaml     # Shared baseline values for pre-prod
 │   └── values-prod.yaml         # Shared baseline values for prod
 ├── .github/workflows/           # CI/CD, PR preview & Trivy security pipelines
-│   ├── main.yml                 # Main Nx affected release & GitOps version bump pipeline
+│   ├── main.yml                 # Main Nx affected (Application/) release & pre-prod bump pipeline
 │   ├── pr-validate.yml          # PR validation, preview-pr-<num> deploy & close cleanup
+│   ├── promote-to-prod.yml      # Manual prod promotion from pre-prod + Git tag & Release
 │   ├── reusable-bump-version.yml
 │   ├── reusable-docker-build-push.yml
 │   ├── reusable-helm-package-push.yml

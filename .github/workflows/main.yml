@@ -49,11 +49,19 @@ jobs:
       - name: Detect Affected Projects
         id: set-affected
         run: |
-          echo "Running nx show projects --affected..."
-          AFFECTED_APPS=$(npx nx show projects --affected --json 2>/dev/null || echo "[]")
+          echo "Base SHA: ${NX_BASE:-origin/main}, Head SHA: ${NX_HEAD:-HEAD}"
+          CHANGED_APP_FILES=$(git diff --name-only "${NX_BASE:-origin/main}" "${NX_HEAD:-HEAD}" -- Application/ | tr '\n' ',' | sed 's/,$//')
+          echo "Changed Application files: $CHANGED_APP_FILES"
+
+          if [ -z "$CHANGED_APP_FILES" ]; then
+            echo "No files changed under Application/. Skipping service bump/build."
+            AFFECTED_APPS="[]"
+          else
+            echo "Running nx show projects --affected --files=..."
+            AFFECTED_APPS=$(npx nx show projects --affected --files="$CHANGED_APP_FILES" --json 2>/dev/null || echo "[]")
+          fi
+
           echo "Affected projects: $AFFECTED_APPS"
-          
-          # If output is empty or not JSON array, ensure fallback
           if [ -z "$AFFECTED_APPS" ] || [ "$AFFECTED_APPS" = "[]" ]; then
             echo "affected_apps=[]" >> "$GITHUB_OUTPUT"
             echo "has_affected=false" >> "$GITHUB_OUTPUT"
