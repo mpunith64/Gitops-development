@@ -62,6 +62,15 @@ gitops/
 ├── common-deployment/           # Shared environment-level overrides
 │   ├── values-pre-prod.yaml     # Shared baseline values for pre-prod
 │   └── values-prod.yaml         # Shared baseline values for prod
+├── .github/workflows/           # CI/CD, PR preview & Trivy security pipelines
+│   ├── main.yml                 # Main Nx affected release & GitOps version bump pipeline
+│   ├── pr-validate.yml          # PR validation, preview-pr-<num> deploy & close cleanup
+│   ├── reusable-bump-version.yml
+│   ├── reusable-docker-build-push.yml
+│   ├── reusable-helm-package-push.yml
+│   └── reusable-security-scan.yml
+├── nx.json                      # Nx workspace configuration
+├── package.json                 # Workspace dependencies (Nx)
 └── .agents/                     # Operational skills and runbooks
     └── skills/                  # Domain-specific procedural skills & runbooks
         ├── argocd-service-management/
@@ -84,7 +93,11 @@ gitops/
 ## 3. Key Workflows
 
 ### Workflow 1: Onboarding a New Microservice
-1. Create the Helm chart in `Application/<service-name>/` with valid `Chart.yaml`, `values.yaml`, and `templates/`.
+1. Create the application folder `Application/<service-name>/` containing:
+   - `helm-chart/` (`Chart.yaml`, `values.yaml`, and `templates/`)
+   - `src/` (application source code)
+   - `Dockerfile` (container build definition)
+   - `project.json` (Nx project metadata for `nx affected` detection)
 2. Add default autoscaling, resource limits, and health probes.
 3. Add any environment-specific overrides in `common-deployment/`.
 4. Register the service in `argocd/package-<env>.json` with its initial version (e.g. `"0.1.0"`).

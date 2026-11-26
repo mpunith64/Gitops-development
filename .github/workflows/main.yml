@@ -93,7 +93,7 @@ jobs:
     uses: ./.github/workflows/reusable-docker-build-push.yml
     with:
       app_name: ${{ matrix.app }}
-      version: ${{ needs.bump-version.outputs[format('{0}_version', matrix.app)] || '0.1.1' }}
+      version: ${{ needs.bump-version.outputs.new_version || '0.1.1' }}
       acr_registry: 'azure-container-registry.azurecr.io'
 
   package-and-push-helm:
@@ -106,7 +106,7 @@ jobs:
     uses: ./.github/workflows/reusable-helm-package-push.yml
     with:
       app_name: ${{ matrix.app }}
-      version: ${{ needs.bump-version.outputs[format('{0}_version', matrix.app)] || '0.1.1' }}
+      version: ${{ needs.bump-version.outputs.new_version || '0.1.1' }}
       acr_registry: 'azure-container-registry.azurecr.io'
 
   commit-bumped-versions:
@@ -142,13 +142,18 @@ jobs:
               echo "Updated $CHART_YAML to version $NEW_VER"
             fi
 
-            # 2. Update argocd package catalogs
+            # 2. Add or update argocd package catalogs
             for PKG in argocd/package-*.json; do
               if [ -f "$PKG" ]; then
                 tmp=$(mktemp)
+                if jq -e --arg app "$APP" '.services[$app] != null' "$PKG" >/dev/null 2>&1; then
+                  ACTION="Updated"
+                else
+                  ACTION="Added new service"
+                fi
                 jq --arg app "$APP" --arg ver "$NEW_VER" \
-                  'if .services[$app] then .services[$app] = $ver else . end' "$PKG" > "$tmp" && mv "$tmp" "$PKG"
-                echo "Updated $PKG for $APP -> $NEW_VER"
+                  '.services = (.services // {}) | .services[$app] = $ver' "$PKG" > "$tmp" && mv "$tmp" "$PKG"
+                echo "$ACTION in $PKG: $APP -> $NEW_VER"
               fi
             done
           done
