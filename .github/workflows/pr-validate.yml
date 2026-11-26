@@ -38,14 +38,13 @@ jobs:
       - name: Install Nx
         run: npm --no-audit --no-fund install
 
-      - name: Derive Base and Head SHAs
-        uses: nrwl/nx-set-shas@v4
-
       - name: Detect Affected Projects
         id: set-affected
         run: |
-          echo "Base SHA: ${NX_BASE:-origin/main}, Head SHA: ${NX_HEAD:-HEAD}"
-          CHANGED_APP_FILES=$(git diff --name-only "${NX_BASE:-origin/main}" "${NX_HEAD:-HEAD}" -- Application/ | tr '\n' ',' | sed 's/,$//')
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          HEAD_SHA="${{ github.sha }}"
+          echo "Comparing $BASE_REF...$HEAD_SHA"
+          CHANGED_APP_FILES=$(git diff --name-only "$BASE_REF"..."$HEAD_SHA" -- Application/ | tr '\n' ',' | sed 's/,$//')
           echo "Changed Application files: $CHANGED_APP_FILES"
 
           if [ -z "$CHANGED_APP_FILES" ]; then
