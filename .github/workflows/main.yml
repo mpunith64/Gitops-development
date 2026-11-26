@@ -143,20 +143,19 @@ jobs:
               echo "Updated $CHART_YAML to version $NEW_VER"
             fi
 
-            # 2. Add or update argocd package catalogs
-            for PKG in argocd/package-*.json; do
-              if [ -f "$PKG" ]; then
-                tmp=$(mktemp)
-                if jq -e --arg app "$APP" '.services[$app] != null' "$PKG" >/dev/null 2>&1; then
-                  ACTION="Updated"
-                else
-                  ACTION="Added new service"
-                fi
-                jq --arg app "$APP" --arg ver "$NEW_VER" \
-                  '.services = (.services // {}) | .services[$app] = $ver' "$PKG" > "$tmp" && mv "$tmp" "$PKG"
-                echo "$ACTION in $PKG: $APP -> $NEW_VER"
+            # 2. Add or update non-prod argocd package catalog (prod is promoted separately)
+            PKG="argocd/package-pre-prod.json"
+            if [ -f "$PKG" ]; then
+              tmp=$(mktemp)
+              if jq -e --arg app "$APP" '.services[$app] != null' "$PKG" >/dev/null 2>&1; then
+                ACTION="Updated"
+              else
+                ACTION="Added new service"
               fi
-            done
+              jq --arg app "$APP" --arg ver "$NEW_VER" \
+                '.services = (.services // {}) | .services[$app] = $ver' "$PKG" > "$tmp" && mv "$tmp" "$PKG"
+              echo "$ACTION in $PKG: $APP -> $NEW_VER"
+            fi
           done
 
       - name: Commit and Push Bumped Versions

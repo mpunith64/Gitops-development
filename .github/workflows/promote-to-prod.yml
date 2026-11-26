@@ -1,0 +1,125 @@
+name: Promote to Prod & Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'Service name to promote (e.g., hello-world)'
+        required: true
+        default: 'hello-world'
+        type: string
+      version:
+        description: 'Version to promote (leave empty to copy current version from package-pre-prod.json)'
+        required: false
+        default: ''
+        type: string
+      release_notes:
+        description: 'Optional release notes'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote-to-prod:
+    name: Promote Service to Prod & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Resolve Version from Pre-Prod Catalog
+        id: resolve
+        run: |
+          SERVICE="${{ inputs.service_name }}"
+          INPUT_VER="${{ inputs.version }}"
+          PRE_PROD_PKG="argocd/package-pre-prod.json"
+
+          if [ ! -f "$PRE_PROD_PKG" ]; then
+            echo "Error: $PRE_PROD_PKG not found."
+            exit 1
+          fi
+
+          PRE_PROD_VER=$(jq -r --arg svc "$SERVICE" '.services[$svc] // empty' "$PRE_PROD_PKG")
+          if [ -z "$PRE_PROD_VER" ] && [ -z "$INPUT_VER" ]; then
+            echo "Error: Service '$SERVICE' not found in $PRE_PROD_PKG and no version input was provided."
+            exit 1
+          fi
+
+          PROMOTE_VER="${INPUT_VER:-$PRE_PROD_VER}"
+          echo "Promoting '$SERVICE' to prod with version: $PROMOTE_VER"
+          echo "promote_version=$PROMOTE_VER" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${SERVICE}-v${PROMOTE_VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Prod Package Catalog
+        run: |
+          SERVICE="${{ inputs.service_name }}"
+          PROMOTE_VER="${{ steps.resolve.outputs.promote_version }}"
+          PROD_PKG="argocd/package-prod.json"
+
+          if [ ! -f "$PROD_PKG" ]; then
+            echo '{"services":{}}' > "$PROD_PKG"
+          fi
+
+          tmp=$(mktemp)
+          jq --arg svc "$SERVICE" --arg ver "$PROMOTE_VER" \
+            '.services = (.services // {}) | .services[$svc] = $ver' "$PROD_PKG" > "$tmp" && mv "$tmp" "$PROD_PKG"
+
+          echo "Updated $PROD_PKG:"
+          cat "$PROD_PKG"
+
+      - name: Validate ArgoCD Prod Manifests
+        run: |
+          helm lint argocd
+          helm template prod-argocd argocd -f argocd/values.yaml -f argocd/values-prod.yaml
+
+      - name: Commit & Push Prod Promotion
+        run: |
+          SERVICE="${{ inputs.service_name }}"
+          PROMOTE_VER="${{ steps.resolve.outputs.promote_version }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add argocd/package-prod.json
+
+          if git diff --staged --quiet; then
+            echo "No changes to argocd/package-prod.json (already at $PROMOTE_VER)."
+          else
+            git commit -m "chore(prod): promote $SERVICE to $PROMOTE_VER [skip ci]"
+            git push origin HEAD:main
+          fi
+
+      - name: Create Git Tag & GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SERVICE="${{ inputs.service_name }}"
+          PROMOTE_VER="${{ steps.resolve.outputs.promote_version }}"
+          TAG="${{ steps.resolve.outputs.tag_name }}"
+          NOTES="${{ inputs.release_notes }}"
+
+          if [ -z "$NOTES" ]; then
+            NOTES="Promoted **$SERVICE** to **prod** at version \`$PROMOTE_VER\` (copied from \`argocd/package-pre-prod.json\`)."
+          fi
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag '$TAG' already exists. Skipping tag/release creation."
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            gh release create "$TAG" --title "$TAG" --notes "$NOTES"
+            echo "Created tag and GitHub release: $TAG"
+          fi
+
+          echo "### Prod Promotion Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Service**: \`$SERVICE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Promoted Version**: \`$PROMOTE_VER\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Release Tag**: \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"

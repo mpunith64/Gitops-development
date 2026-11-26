@@ -46,14 +46,12 @@ jobs:
 
           echo "Current version of $APP is $CURRENT_VER"
 
-          # Check if service is already registered in any argocd/package-*.json
+          # Check if service is already registered in non-prod catalog (argocd/package-pre-prod.json)
           IS_REGISTERED="false"
-          for PKG in argocd/package-*.json; do
-            if [ -f "$PKG" ] && jq -e --arg app "$APP" '.services[$app] != null' "$PKG" >/dev/null 2>&1; then
-              IS_REGISTERED="true"
-              break
-            fi
-          done
+          PKG="argocd/package-pre-prod.json"
+          if [ -f "$PKG" ] && jq -e --arg app "$APP" '.services[$app] != null' "$PKG" >/dev/null 2>&1; then
+            IS_REGISTERED="true"
+          fi
 
           if [ "$IS_REGISTERED" = "false" ]; then
             NEW_VER="${CURRENT_VER:-0.1.0}"
