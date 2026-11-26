@@ -3,7 +3,7 @@ set -euo pipefail
 
 ENV="${1:-pre-prod}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || cd "$SCRIPT_DIR/../../../.." && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/../../../.." && pwd))"
 CHART_DIR="$REPO_ROOT/argocd"
 
 echo "=== ArgoCD Helm Template Validation ==="
