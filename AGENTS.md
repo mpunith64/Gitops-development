@@ -40,21 +40,37 @@ This repository manages declarative GitOps deployments using **ArgoCD** and **He
 
 ```text
 gitops/
-├── Application/                 # Microservice Helm charts
-│   └── website/                 # Example web service Helm chart
-│       ├── Chart.yaml           # Chart metadata and semantic versions
-│       ├── values.yaml          # Base default values
-│       └── templates/           # Kubernetes manifests (Deployment, Service, HPA, Ingress)
+├── Application/                 # Microservice Helm charts and source
+│   └── hello-world/             # Hello World microservice
+│       ├── Dockerfile           # Application container build definition
+│       ├── project.json         # Nx project metadata
+│       ├── src/                 # Application source code
+│       └── helm-chart/          # Kubernetes manifests & Helm package
+│           ├── Chart.yaml       # Chart metadata and semantic versions
+│           ├── values.yaml      # Base default values
+│           └── templates/       # Kubernetes manifests (Deployment, Service, HPA, Ingress)
 ├── argocd/                      # ArgoCD App-of-Apps management chart
 │   ├── Chart.yaml               # ArgoCD root chart definition
 │   ├── values.yaml              # Global default values (source repos, OCI registry)
 │   ├── values-pre-prod.yaml     # Pre-production environment configuration
+│   ├── values-prod.yaml         # Production environment configuration
 │   ├── package-pre-prod.json    # Service version catalog for pre-prod
+│   ├── package-prod.json        # Service version catalog for prod
 │   └── templates/
 │       ├── parent.yaml          # Root Application (Application-brain)
 │       └── deployment.yaml      # Dynamic generator for all service Applications
 ├── common-deployment/           # Shared environment-level overrides
-│   └── values-pre-prod.yaml     # Shared baseline values across services (e.g. autoscaling)
+│   ├── values-pre-prod.yaml     # Shared baseline values for pre-prod
+│   └── values-prod.yaml         # Shared baseline values for prod
+├── .github/workflows/           # CI/CD, PR preview & Trivy security pipelines
+│   ├── main.yml                 # Main Nx affected release & GitOps version bump pipeline
+│   ├── pr-validate.yml          # PR validation, preview-pr-<num> deploy & close cleanup
+│   ├── reusable-bump-version.yml
+│   ├── reusable-docker-build-push.yml
+│   ├── reusable-helm-package-push.yml
+│   └── reusable-security-scan.yml
+├── nx.json                      # Nx workspace configuration
+├── package.json                 # Workspace dependencies (Nx)
 └── .agents/                     # Operational skills and runbooks
     └── skills/                  # Domain-specific procedural skills & runbooks
         ├── argocd-service-management/
@@ -77,7 +93,11 @@ gitops/
 ## 3. Key Workflows
 
 ### Workflow 1: Onboarding a New Microservice
-1. Create the Helm chart in `Application/<service-name>/` with valid `Chart.yaml`, `values.yaml`, and `templates/`.
+1. Create the application folder `Application/<service-name>/` containing:
+   - `helm-chart/` (`Chart.yaml`, `values.yaml`, and `templates/`)
+   - `src/` (application source code)
+   - `Dockerfile` (container build definition)
+   - `project.json` (Nx project metadata for `nx affected` detection)
 2. Add default autoscaling, resource limits, and health probes.
 3. Add any environment-specific overrides in `common-deployment/`.
 4. Register the service in `argocd/package-<env>.json` with its initial version (e.g. `"0.1.0"`).
@@ -90,7 +110,7 @@ gitops/
 1. Identify target environment (`argocd/package-<env>.json`).
 2. Update the service version using the promotion helper:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File .agents/skills/gitops-environment-promotion/scripts/update-service-version.ps1 -Environment pre-prod -Service website -Version 0.2.0
+   powershell -ExecutionPolicy Bypass -File .agents/skills/gitops-environment-promotion/scripts/update-service-version.ps1 -Environment pre-prod -Service hello-world -Version 0.2.0
    ```
 3. Run dry-run template rendering and inspect the git diff.
 4. Commit and push changes to trigger ArgoCD synchronization.
@@ -127,11 +147,11 @@ powershell -ExecutionPolicy Bypass -File .agents/skills/helm-management/scripts/
 powershell -ExecutionPolicy Bypass -File .agents/skills/argocd-service-management/scripts/render-argocd.ps1 -Environment pre-prod
 
 # Promote / Update a service version
-powershell -ExecutionPolicy Bypass -File .agents/skills/gitops-environment-promotion/scripts/update-service-version.ps1 -Environment pre-prod -Service website -Version 0.2.0
+powershell -ExecutionPolicy Bypass -File .agents/skills/gitops-environment-promotion/scripts/update-service-version.ps1 -Environment pre-prod -Service hello-world -Version 0.2.0
 
 # Direct Helm validation commands
-helm lint Application/website
+helm lint Application/hello-world/helm-chart
 helm lint argocd
-helm template test-website Application/website -f Application/website/values.yaml -f common-deployment/values-pre-prod.yaml
+helm template test-hello-world Application/hello-world/helm-chart -f Application/hello-world/helm-chart/values.yaml -f common-deployment/values-pre-prod.yaml
 helm template test-argocd argocd -f argocd/values.yaml -f argocd/values-pre-prod.yaml
 ```

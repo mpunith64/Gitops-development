@@ -12,7 +12,7 @@ SERVICE="$2"
 VERSION="$3"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || cd "$SCRIPT_DIR/../../../.." && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/../../../.." && pwd))"
 PACKAGE_FILE="$REPO_ROOT/argocd/package-$ENV.json"
 
 echo "=== GitOps Service Version Promotion ==="

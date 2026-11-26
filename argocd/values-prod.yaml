@@ -1,0 +1,7 @@
+image:
+  environment: 'prod'
+  pullPolicy: Always
+tenant:
+  digital: prod
+syncPolicy:
+  enabled: true

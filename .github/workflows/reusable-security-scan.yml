@@ -1,0 +1,44 @@
+name: Reusable Security & CVE Scan
+
+on:
+  workflow_call:
+    inputs:
+      scan_path:
+        required: false
+        type: string
+        default: '.'
+        description: 'Path to scan for vulnerabilities, secrets, and misconfigurations'
+      severity:
+        required: false
+        type: string
+        default: 'CRITICAL,HIGH'
+        description: 'Severity levels to report'
+
+jobs:
+  trivy-scan:
+    name: Trivy CVE, Secret & Config Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan Filesystem for CVEs & Secrets
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ inputs.scan_path }}
+          scanners: 'vuln,secret'
+          severity: ${{ inputs.severity }}
+          ignore-unfixed: true
+          format: 'table'
+          exit-code: '1'
+
+      - name: Scan Dockerfile, Helm & K8s Manifests for Misconfigurations
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'config'
+          scan-ref: ${{ inputs.scan_path }}
+          severity: ${{ inputs.severity }}
+          format: 'table'
+          # Set exit-code to '1' to fail the pipeline on Helm/Dockerfile misconfigurations
+          exit-code: '0'

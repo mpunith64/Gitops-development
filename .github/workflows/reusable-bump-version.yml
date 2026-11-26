@@ -1,0 +1,99 @@
+name: Reusable Bump Version
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        required: true
+        type: string
+        description: 'Application name'
+      bump_type:
+        required: false
+        type: string
+        default: 'patch'
+        description: 'SemVer bump type (patch, minor, major)'
+    outputs:
+      hello_world_version:
+        description: 'New version for hello-world'
+        value: ${{ jobs.bump.outputs.new_version }}
+      new_version:
+        description: 'New version calculated'
+        value: ${{ jobs.bump.outputs.new_version }}
+
+jobs:
+  bump:
+    name: Calculate & Bump Version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.calc.outputs.new_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Calculate Bumped Version
+        id: calc
+        run: |
+          APP="${{ inputs.app_name }}"
+          BUMP="${{ inputs.bump_type }}"
+          CHART_YAML="Application/$APP/helm-chart/Chart.yaml"
+
+          if [ ! -f "$CHART_YAML" ]; then
+            echo "Chart.yaml not found at $CHART_YAML. Defaulting to 0.1.0"
+            CURRENT_VER="0.1.0"
+          else
+            CURRENT_VER=$(grep '^version:' "$CHART_YAML" | awk '{print $2}' | tr -d '"')
+          fi
+
+          echo "Current version of $APP is $CURRENT_VER"
+
+          # Check if service is already registered in any argocd/package-*.json
+          IS_REGISTERED="false"
+          for PKG in argocd/package-*.json; do
+            if [ -f "$PKG" ] && jq -e --arg app "$APP" '.services[$app] != null' "$PKG" >/dev/null 2>&1; then
+              IS_REGISTERED="true"
+              break
+            fi
+          done
+
+          if [ "$IS_REGISTERED" = "false" ]; then
+            NEW_VER="${CURRENT_VER:-0.1.0}"
+            echo "New service '$APP' detected (not yet in argocd/package-*.json). Using default version: $NEW_VER"
+          else
+            # Parse SemVer MAJOR.MINOR.PATCH
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VER"
+            MAJOR=${MAJOR:-0}
+            MINOR=${MINOR:-0}
+            PATCH=${PATCH:-0}
+
+            if [ "$BUMP" = "major" ]; then
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+            elif [ "$BUMP" = "minor" ]; then
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            else
+              PATCH=$((PATCH + 1))
+            fi
+
+            NEW_VER="$MAJOR.$MINOR.$PATCH"
+          fi
+
+          echo "Calculated target version: $NEW_VER"
+          echo "new_version=$NEW_VER" >> "$GITHUB_OUTPUT"
+
+          # Write artifact file for main job to aggregate
+          mkdir -p bump-artifacts
+          cat <<EOF > "bump-artifacts/bump-info-$APP.json"
+          {
+            "app_name": "$APP",
+            "previous_version": "$CURRENT_VER",
+            "new_version": "$NEW_VER"
+          }
+          EOF
+
+      - name: Upload Bump Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bump-artifact-${{ inputs.app_name }}
+          path: bump-artifacts/bump-info-${{ inputs.app_name }}.json

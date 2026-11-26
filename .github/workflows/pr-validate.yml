@@ -1,0 +1,195 @@
+name: PR Validation & Preview Environment
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-affected:
+    name: Detect Affected Applications
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    outputs:
+      affected_apps: ${{ steps.set-affected.outputs.affected_apps }}
+      has_affected: ${{ steps.set-affected.outputs.has_affected }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Nx
+        run: npm --no-audit --no-fund install
+
+      - name: Derive Base and Head SHAs
+        uses: nrwl/nx-set-shas@v4
+
+      - name: Detect Affected Projects
+        id: set-affected
+        run: |
+          echo "Running nx show projects --affected..."
+          AFFECTED_APPS=$(npx nx show projects --affected --json 2>/dev/null || echo "[]")
+          echo "Affected projects: $AFFECTED_APPS"
+
+          if [ -z "$AFFECTED_APPS" ] || [ "$AFFECTED_APPS" = "[]" ]; then
+            echo "affected_apps=[]" >> "$GITHUB_OUTPUT"
+            echo "has_affected=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "affected_apps=$AFFECTED_APPS" >> "$GITHUB_OUTPUT"
+            echo "has_affected=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  validate-gitops-repo:
+    name: Validate GitOps Repo & ArgoCD Manifests
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run Repository Validation Suite
+        run: bash .agents/skills/gitops-validation/scripts/validate-all.sh
+
+  security-scan:
+    name: Security & CVE Scan
+    if: github.event.action != 'closed'
+    uses: ./.github/workflows/reusable-security-scan.yml
+    with:
+      scan_path: '.'
+      severity: 'CRITICAL,HIGH'
+
+  validate-and-deploy-preview:
+    name: Validate Helm & Deploy Preview Env
+    needs: detect-affected
+    if: github.event.action != 'closed' && needs.detect-affected.outputs.has_affected == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect-affected.outputs.affected_apps) }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm Lint Affected Application
+        run: |
+          APP="${{ matrix.app }}"
+          CHART_PATH="Application/$APP/helm-chart"
+          echo "Linting Helm chart at $CHART_PATH..."
+          helm lint "$CHART_PATH"
+
+      - name: Helm Template Affected Application
+        run: |
+          APP="${{ matrix.app }}"
+          CHART_PATH="Application/$APP/helm-chart"
+          PREVIEW_ENV="preview-pr-${{ github.event.pull_request.number || 'manual' }}"
+
+          echo "=========================================="
+          echo "Rendering Helm template for $APP ($PREVIEW_ENV)"
+          echo "=========================================="
+          helm template "$APP" "$CHART_PATH" \
+            -f "$CHART_PATH/values.yaml" \
+            -f "common-deployment/values-pre-prod.yaml"
+
+      - name: Deploy to Preview Environment on AKS (Echo Mode)
+        run: |
+          APP="${{ matrix.app }}"
+          PR_NUM="${{ github.event.pull_request.number || 'manual' }}"
+          PREVIEW_ENV="preview-pr-$PR_NUM"
+          RELEASE_NAME="$APP-pr-$PR_NUM"
+
+          echo "=========================================="
+          echo "Deploying '$APP' to AKS Preview Environment: $PREVIEW_ENV"
+          echo "=========================================="
+          echo "[ECHO COMMAND] az aks get-credentials --resource-group rg-aks-pre-prod --name aks-pre-prod-cluster"
+          echo "[ECHO COMMAND] kubectl create namespace $PREVIEW_ENV --dry-run=client -o yaml | kubectl apply -f -"
+          echo "[ECHO COMMAND] helm upgrade --install $RELEASE_NAME Application/$APP/helm-chart -n $PREVIEW_ENV -f Application/$APP/helm-chart/values.yaml -f common-deployment/values-pre-prod.yaml"
+          echo "Preview environment '$PREVIEW_ENV' deployment simulation completed for '$APP'."
+
+  cleanup-preview:
+    name: Cleanup Preview Environment
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Teardown Preview Environment on AKS (Echo Mode)
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          PREVIEW_ENV="preview-pr-$PR_NUM"
+
+          echo "=========================================="
+          echo "PR #$PR_NUM closed - Cleaning up AKS Preview Environment: $PREVIEW_ENV"
+          echo "=========================================="
+          echo "[ECHO COMMAND] az aks get-credentials --resource-group rg-aks-pre-prod --name aks-pre-prod-cluster"
+          for APP_DIR in Application/*/; do
+            if [ -d "$APP_DIR" ]; then
+              APP=$(basename "$APP_DIR")
+              RELEASE_NAME="$APP-pr-$PR_NUM"
+              echo "[ECHO COMMAND] helm uninstall $RELEASE_NAME -n $PREVIEW_ENV || true"
+            fi
+          done
+          echo "[ECHO COMMAND] kubectl delete namespace $PREVIEW_ENV --ignore-not-found=true"
+          echo "Preview environment '$PREVIEW_ENV' cleanup simulation completed."
+
+          echo "### Preview Environment Cleanup" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Environment**: \`$PREVIEW_ENV\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Status**: Cleaned up after PR #$PR_NUM closed." >> "$GITHUB_STEP_SUMMARY"
+
+  pr-summary:
+    name: PR Validation Summary
+    needs: [detect-affected, validate-gitops-repo, security-scan, validate-and-deploy-preview]
+    if: always() && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Validation Results
+        run: |
+          PR_NUM="${{ github.event.pull_request.number || 'manual' }}"
+          PREVIEW_ENV="preview-pr-$PR_NUM"
+
+          echo "### PR Validation & Preview Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Preview Environment**: \`$PREVIEW_ENV\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Affected Applications**: \`${{ needs.detect-affected.outputs.affected_apps }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **GitOps Repo Validation**: \`${{ needs.validate-gitops-repo.result }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Security & CVE Scan (Trivy)**: \`${{ needs.security-scan.result }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Helm Template & Preview Deploy**: \`${{ needs.validate-and-deploy-preview.result }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ needs.validate-gitops-repo.result }}" != "success" ]; then
+            echo "GitOps repo validation failed."
+            exit 1
+          fi
+
+          if [ "${{ needs.security-scan.result }}" != "success" ]; then
+            echo "Security & CVE scan failed."
+            exit 1
+          fi
+
+          if [ "${{ needs.detect-affected.outputs.has_affected }}" = "true" ] && [ "${{ needs.validate-and-deploy-preview.result }}" != "success" ]; then
+            echo "Affected Helm template validation or preview deploy failed."
+            exit 1
+          fi
+
+          echo "All PR validation checks passed! Preview environment '$PREVIEW_ENV' is ready for testing. Once merged to main, changes will deploy to pre-prod." >> "$GITHUB_STEP_SUMMARY"
