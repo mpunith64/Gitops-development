@@ -23,15 +23,17 @@ permissions:
   contents: write
 
 jobs:
-  promote-to-prod:
-    name: Promote Service to Prod & Release
+  prepare-promotion:
+    name: Prepare & Validate Prod Promotion
     runs-on: ubuntu-latest
+    outputs:
+      promote_version: ${{ steps.resolve.outputs.promote_version }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
@@ -55,14 +57,34 @@ jobs:
           fi
 
           PROMOTE_VER="${INPUT_VER:-$PRE_PROD_VER}"
-          echo "Promoting '$SERVICE' to prod with version: $PROMOTE_VER"
+          echo "Resolved promotion target: $SERVICE -> $PROMOTE_VER"
           echo "promote_version=$PROMOTE_VER" >> "$GITHUB_OUTPUT"
           echo "tag_name=${SERVICE}-v${PROMOTE_VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate ArgoCD Prod Manifests (Dry Run)
+        run: |
+          helm lint argocd
+          helm template prod-argocd argocd -f argocd/values.yaml -f argocd/values-prod.yaml
+
+  promote-to-prod:
+    name: Approve & Promote to Prod
+    needs: prepare-promotion
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
 
       - name: Update Prod Package Catalog
         run: |
           SERVICE="${{ inputs.service_name }}"
-          PROMOTE_VER="${{ steps.resolve.outputs.promote_version }}"
+          PROMOTE_VER="${{ needs.prepare-promotion.outputs.promote_version }}"
           PROD_PKG="argocd/package-prod.json"
 
           if [ ! -f "$PROD_PKG" ]; then
@@ -76,7 +98,7 @@ jobs:
           echo "Updated $PROD_PKG:"
           cat "$PROD_PKG"
 
-      - name: Validate ArgoCD Prod Manifests
+      - name: Validate Updated Prod Manifests
         run: |
           helm lint argocd
           helm template prod-argocd argocd -f argocd/values.yaml -f argocd/values-prod.yaml
@@ -84,7 +106,7 @@ jobs:
       - name: Commit & Push Prod Promotion
         run: |
           SERVICE="${{ inputs.service_name }}"
-          PROMOTE_VER="${{ steps.resolve.outputs.promote_version }}"
+          PROMOTE_VER="${{ needs.prepare-promotion.outputs.promote_version }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -102,8 +124,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           SERVICE="${{ inputs.service_name }}"
-          PROMOTE_VER="${{ steps.resolve.outputs.promote_version }}"
-          TAG="${{ steps.resolve.outputs.tag_name }}"
+          PROMOTE_VER="${{ needs.prepare-promotion.outputs.promote_version }}"
+          TAG="${{ needs.prepare-promotion.outputs.tag_name }}"
           NOTES="${{ inputs.release_notes }}"
 
           if [ -z "$NOTES" ]; then
