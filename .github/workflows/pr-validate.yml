@@ -69,6 +69,14 @@ jobs:
       - name: Run Repository Validation Suite
         run: bash .agents/skills/gitops-validation/scripts/validate-all.sh
 
+  security-scan:
+    name: Security & CVE Scan
+    if: github.event.action != 'closed'
+    uses: ./.github/workflows/reusable-security-scan.yml
+    with:
+      scan_path: '.'
+      severity: 'CRITICAL,HIGH'
+
   validate-and-deploy-preview:
     name: Validate Helm & Deploy Preview Env
     needs: detect-affected
@@ -153,7 +161,7 @@ jobs:
 
   pr-summary:
     name: PR Validation Summary
-    needs: [detect-affected, validate-gitops-repo, validate-and-deploy-preview]
+    needs: [detect-affected, validate-gitops-repo, security-scan, validate-and-deploy-preview]
     if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
@@ -166,10 +174,16 @@ jobs:
           echo "- **Preview Environment**: \`$PREVIEW_ENV\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Affected Applications**: \`${{ needs.detect-affected.outputs.affected_apps }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **GitOps Repo Validation**: \`${{ needs.validate-gitops-repo.result }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Security & CVE Scan (Trivy)**: \`${{ needs.security-scan.result }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Helm Template & Preview Deploy**: \`${{ needs.validate-and-deploy-preview.result }}\`" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${{ needs.validate-gitops-repo.result }}" != "success" ]; then
             echo "GitOps repo validation failed."
+            exit 1
+          fi
+
+          if [ "${{ needs.security-scan.result }}" != "success" ]; then
+            echo "Security & CVE scan failed."
             exit 1
           fi
 

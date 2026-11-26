@@ -61,9 +61,18 @@ jobs:
             echo "has_affected=true" >> "$GITHUB_OUTPUT"
           fi
 
+  security-scan:
+    name: Security & CVE Scan
+    needs: detect-affected
+    if: needs.detect-affected.outputs.has_affected == 'true'
+    uses: ./.github/workflows/reusable-security-scan.yml
+    with:
+      scan_path: '.'
+      severity: 'CRITICAL,HIGH'
+
   bump-version:
     name: Bump Versions
-    needs: detect-affected
+    needs: [detect-affected, security-scan]
     if: needs.detect-affected.outputs.has_affected == 'true'
     strategy:
       matrix:
